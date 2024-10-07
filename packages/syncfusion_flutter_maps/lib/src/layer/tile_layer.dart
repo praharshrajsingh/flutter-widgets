@@ -1,9 +1,15 @@
 import 'dart:math';
+import 'dart:io';
+import 'dart:io';
+import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:syncfusion_flutter_core/theme.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' show get;
 
 import '../../maps.dart';
 import '../common.dart';
@@ -128,7 +134,6 @@ class MapTileLayerController extends MapLayerController {
 // ignore_for_file: public_member_api_docs
 class TileLayer extends StatefulWidget {
   const TileLayer({
-    super.key,
     required this.urlTemplate,
     required this.initialFocalLatLng,
     required this.initialZoomLevel,
@@ -423,16 +428,41 @@ class _TileLayerState extends State<TileLayer> with TickerProviderStateMixin {
     final double tileLeftPos = (tileFactor.x * tileSize) - level.origin!.dx;
     final double tileTopPos = (tileFactor.y * tileSize) - level.origin!.dy;
 
+    if(url.startsWith('http')){
+      _saveTile(url, _getQuadKey(tileFactor.x, tileFactor.y, tileFactor.z));
+    }
+
     _tiles[tileFactorToKey] = _MapTile(
       coordinates: tileFactor,
       xyzKey: tileFactorToKey,
       tilePos: Offset(tileLeftPos, tileTopPos),
       level: _levels[tileFactor.z]!,
-      image: Image.network(
+      image: url.startsWith("file://") ? Image.file(File(url.substring(7))) :Image.network(
         url,
         fit: BoxFit.fill,
       ),
     );
+  }
+
+  Future<void> _saveTile(String url, String quadKey)async{
+    final Directory tempDir = await getTemporaryDirectory();
+    final Directory cacheimg = Directory('${tempDir.path}/mapcache_rgstc');
+    if(await cacheimg.exists() == false){
+      cacheimg.create();
+    }
+    final List<FileSystemEntity> files = cacheimg.listSync();
+
+    if(files.length==50){
+      files[files.length - 1].deleteSync();
+    }
+    _cacheImage(url, quadKey, cacheimg);
+  }
+
+  Future<void> _cacheImage(String url, String quadKey, Directory cacheimg)async{
+    final imgpath = '${cacheimg.path}/a${quadKey}.jpeg';
+      var response = await get(Uri.parse(url));
+      final File f= new File(imgpath);
+      f.writeAsBytesSync(response.bodyBytes);
   }
 
   // Converts the [urlTemplate] format into respective map
@@ -751,26 +781,24 @@ class _TileLayerState extends State<TileLayer> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final ThemeData themeData = Theme.of(context);
-    final MapsThemeData effectiveMapsThemeData = MapsThemeData(context);
+    final SfMapsThemeData effectiveMapsThemeData = themeData.useMaterial3
+        ? SfMapsThemeDataM3(context)
+        : SfMapsThemeDataM2(context);
     _isDesktop = kIsWeb ||
         themeData.platform == TargetPlatform.macOS ||
         themeData.platform == TargetPlatform.windows ||
         themeData.platform == TargetPlatform.linux;
-
     _mapsThemeData = SfMapsTheme.of(context)!;
     _mapsThemeData = _mapsThemeData.copyWith(
       tooltipColor: widget.tooltipSettings.color ??
           _mapsThemeData.tooltipColor ??
           effectiveMapsThemeData.tooltipColor,
       tooltipStrokeColor: widget.tooltipSettings.strokeColor ??
-          _mapsThemeData.tooltipStrokeColor ??
-          effectiveMapsThemeData.tooltipStrokeColor,
+          _mapsThemeData.tooltipStrokeColor,
       tooltipStrokeWidth: widget.tooltipSettings.strokeWidth ??
           _mapsThemeData.tooltipStrokeWidth,
       tooltipBorderRadius: _mapsThemeData.tooltipBorderRadius
           .resolve(Directionality.of(context)),
-      markerIconColor: _mapsThemeData.markerIconColor ??
-          effectiveMapsThemeData.markerIconColor,
     );
 
     return LayoutBuilder(
